@@ -24,7 +24,8 @@ const ACCEPTED_EXTENSIONS = [".txt", ".pdf", ".docx"];
 
 async function extractTextFromPDF(file: globalThis.File): Promise<string> {
   const pdfjsLib = await import("pdfjs-dist");
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+  // Use local worker (copied to public/ during Docker build), fallback to CDN
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
