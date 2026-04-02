@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { processText, type ProcessamentoResponse } from "@/lib/api";
 import {
@@ -12,17 +12,105 @@ import {
   AlertTriangle,
   Loader2,
   Sparkles,
+  File,
 } from "lucide-react";
+
+const ACCEPTED_TYPES = [
+  "text/plain",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+const ACCEPTED_EXTENSIONS = [".txt", ".pdf", ".docx"];
+
+async function extractTextFromPDF(file: globalThis.File): Promise<string> {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages: string[] = [];
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const text = content.items
+      .map((item: any) => item.str || "")
+      .join(" ");
+    pages.push(text);
+  }
+
+  return pages.join("\n\n");
+}
+
+async function extractTextFromFile(file: globalThis.File): Promise<string> {
+  const ext = file.name.toLowerCase().split(".").pop();
+
+  if (ext === "txt" || file.type === "text/plain") {
+    return file.text();
+  }
+
+  if (ext === "pdf" || file.type === "application/pdf") {
+    return extractTextFromPDF(file);
+  }
+
+  if (
+    ext === "docx" ||
+    file.type ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    // For DOCX, extract raw text from XML
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const docXml = await zip.file("word/document.xml")?.async("string");
+    if (!docXml) throw new Error("Arquivo DOCX inválido");
+    // Strip XML tags to get plain text
+    return docXml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  throw new Error("Formato não suportado. Use .txt, .pdf ou .docx");
+}
 
 export default function UploadPage() {
   const [texto, setTexto] = useState("");
   const [criarProcesso, setCriarProcesso] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
   const [resultado, setResultado] = useState<ProcessamentoResponse | null>(
     null
   );
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = useCallback(async (file: globalThis.File) => {
+    const ext = "." + file.name.toLowerCase().split(".").pop();
+    if (!ACCEPTED_TYPES.includes(file.type) && !ACCEPTED_EXTENSIONS.includes(ext)) {
+      setError("Formato não suportado. Use .txt, .pdf ou .docx");
+      return;
+    }
+
+    setFileLoading(true);
+    setError(null);
+    setFileName(file.name);
+
+    try {
+      const text = await extractTextFromFile(file);
+      if (text.trim().length === 0) {
+        setError("Não foi possível extrair texto do arquivo. Verifique se o arquivo não está vazio ou protegido.");
+        setFileName(null);
+      } else {
+        setTexto(text);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao ler arquivo.";
+      setError(msg);
+      setFileName(null);
+    } finally {
+      setFileLoading(false);
+    }
+  }, []);
 
   const handleAnalise = async () => {
     if (texto.trim().length < 20) {
@@ -62,14 +150,19 @@ export default function UploadPage() {
     setDragActive(false);
 
     const file = e.dataTransfer.files?.[0];
-    if (file && file.type === "text/plain") {
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        setTexto(evt.target?.result as string);
-      };
-      reader.readAsText(file);
+    if (file) {
+      handleFile(file);
     }
-  }, []);
+  }, [handleFile]);
+
+  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFile(file);
+    }
+    // Reset so same file can be re-selected
+    e.target.value = "";
+  }, [handleFile]);
 
   return (
     <div className="animate-fade-in space-y-8">
@@ -96,7 +189,15 @@ export default function UploadPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,.pdf,.docx"
+                onChange={handleFileInput}
+                className="hidden"
+              />
               <div
+                onClick={() => fileInputRef.current?.click()}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
                 onDragOver={handleDrag}
@@ -107,11 +208,30 @@ export default function UploadPage() {
                     : "border-slate-700 bg-slate-800/30 hover:border-slate-600"
                 }`}
               >
-                <Upload className="mb-2 h-8 w-8 text-slate-500" />
-                <p className="text-sm text-slate-400">
-                  Arraste um arquivo .txt aqui
-                </p>
-                <p className="text-xs text-slate-600">ou cole o texto abaixo</p>
+                {fileLoading ? (
+                  <>
+                    <Loader2 className="mb-2 h-8 w-8 animate-spin text-blue-400" />
+                    <p className="text-sm text-blue-400">Extraindo texto...</p>
+                  </>
+                ) : fileName ? (
+                  <>
+                    <File className="mb-2 h-8 w-8 text-emerald-400" />
+                    <p className="text-sm text-emerald-400">{fileName}</p>
+                    <p className="text-xs text-slate-500">Clique para trocar o arquivo</p>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="mb-2 h-8 w-8 text-slate-500" />
+                    <p className="text-sm text-slate-400">
+                      Arraste um arquivo aqui ou clique para selecionar
+                    </p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Suporta <span className="text-blue-400">.pdf</span>,{" "}
+                      <span className="text-blue-400">.docx</span> e{" "}
+                      <span className="text-blue-400">.txt</span>
+                    </p>
+                  </>
+                )}
               </div>
 
               <textarea
