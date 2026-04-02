@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { processText, type ProcessamentoResponse } from "@/lib/api";
 import {
@@ -13,6 +14,11 @@ import {
   Loader2,
   Sparkles,
   File,
+  ArrowRight,
+  Zap,
+  Search,
+  Brain,
+  ShieldCheck,
 } from "lucide-react";
 
 const ACCEPTED_TYPES = [
@@ -24,7 +30,6 @@ const ACCEPTED_EXTENSIONS = [".txt", ".pdf", ".docx"];
 
 async function extractTextFromPDF(file: globalThis.File): Promise<string> {
   const pdfjsLib = await import("pdfjs-dist");
-  // Use local worker (copied to public/ during Docker build), fallback to CDN
   pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
   const arrayBuffer = await file.arrayBuffer();
@@ -60,34 +65,120 @@ async function extractTextFromFile(file: globalThis.File): Promise<string> {
     file.type ===
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   ) {
-    // For DOCX, extract raw text from XML
     const JSZip = (await import("jszip")).default;
     const zip = await JSZip.loadAsync(await file.arrayBuffer());
     const docXml = await zip.file("word/document.xml")?.async("string");
     if (!docXml) throw new Error("Arquivo DOCX inválido");
-    // Strip XML tags to get plain text
     return docXml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   }
 
   throw new Error("Formato não suportado. Use .txt, .pdf ou .docx");
 }
 
+// ── Pipeline Steps Visual ──────────────────────────
+type PipelineStep = "idle" | "extracting" | "analyzing" | "creating" | "redirecting";
+
+const PIPELINE_STEPS = [
+  { key: "extracting", icon: Search, label: "Extraindo dados com IA" },
+  { key: "analyzing", icon: Brain, label: "Análise jurimétrica" },
+  { key: "creating", icon: ShieldCheck, label: "Salvando processo" },
+  { key: "redirecting", icon: Zap, label: "Abrindo análise profunda" },
+] as const;
+
+function PipelineProgress({ currentStep }: { currentStep: PipelineStep }) {
+  if (currentStep === "idle") return null;
+
+  const stepIndex = PIPELINE_STEPS.findIndex((s) => s.key === currentStep);
+
+  return (
+    <Card className="border-blue-500/20 bg-blue-500/5">
+      <CardContent>
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+            <p className="text-sm font-medium text-blue-400">
+              Processando documento...
+            </p>
+          </div>
+          <div className="space-y-3">
+            {PIPELINE_STEPS.map((step, i) => {
+              const StepIcon = step.icon;
+              const isActive = i === stepIndex;
+              const isDone = i < stepIndex;
+              const isPending = i > stepIndex;
+
+              return (
+                <div
+                  key={step.key}
+                  className={`flex items-center gap-3 rounded-lg px-3 py-2 transition-all ${
+                    isActive
+                      ? "bg-blue-500/10 border border-blue-500/20"
+                      : isDone
+                        ? "bg-emerald-500/5"
+                        : "opacity-40"
+                  }`}
+                >
+                  <div
+                    className={`rounded-full p-1.5 ${
+                      isActive
+                        ? "bg-blue-500/20"
+                        : isDone
+                          ? "bg-emerald-500/20"
+                          : "bg-slate-800"
+                    }`}
+                  >
+                    {isDone ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    ) : isActive ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+                    ) : (
+                      <StepIcon
+                        className={`h-4 w-4 ${isPending ? "text-slate-600" : "text-blue-400"}`}
+                      />
+                    )}
+                  </div>
+                  <span
+                    className={`text-sm ${
+                      isActive
+                        ? "font-medium text-blue-300"
+                        : isDone
+                          ? "text-emerald-400"
+                          : "text-slate-600"
+                    }`}
+                  >
+                    {step.label}
+                    {isDone && " ✓"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Main Component ──────────────────────────────────
 export default function UploadPage() {
+  const router = useRouter();
   const [texto, setTexto] = useState("");
-  const [criarProcesso, setCriarProcesso] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [pipelineStep, setPipelineStep] = useState<PipelineStep>("idle");
   const [fileLoading, setFileLoading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [resultado, setResultado] = useState<ProcessamentoResponse | null>(
-    null
-  );
+  const [resultado, setResultado] = useState<ProcessamentoResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const isProcessing = pipelineStep !== "idle";
+
   const handleFile = useCallback(async (file: globalThis.File) => {
     const ext = "." + file.name.toLowerCase().split(".").pop();
-    if (!ACCEPTED_TYPES.includes(file.type) && !ACCEPTED_EXTENSIONS.includes(ext)) {
+    if (
+      !ACCEPTED_TYPES.includes(file.type) &&
+      !ACCEPTED_EXTENSIONS.includes(ext)
+    ) {
       setError("Formato não suportado. Use .txt, .pdf ou .docx");
       return;
     }
@@ -99,7 +190,9 @@ export default function UploadPage() {
     try {
       const text = await extractTextFromFile(file);
       if (text.trim().length === 0) {
-        setError("Não foi possível extrair texto do arquivo. Verifique se o arquivo não está vazio ou protegido.");
+        setError(
+          "Não foi possível extrair texto do arquivo. Verifique se o arquivo não está vazio ou protegido."
+        );
         setFileName(null);
       } else {
         setTexto(text);
@@ -113,25 +206,68 @@ export default function UploadPage() {
     }
   }, []);
 
-  const handleAnalise = async () => {
+  // ── FLUXO DIANA TECH: Análise Completa ──
+  const handleAnaliseCompleta = async () => {
     if (texto.trim().length < 20) {
       setError("O texto deve ter pelo menos 20 caracteres.");
       return;
     }
 
-    setLoading(true);
     setError(null);
     setResultado(null);
 
     try {
-      const res = await processText(texto, criarProcesso);
+      // FASE 1: Extração e análise com IA
+      setPipelineStep("extracting");
+      await new Promise((r) => setTimeout(r, 400)); // Visual feedback
+
+      setPipelineStep("analyzing");
+      const res = await processText(texto, true); // Sempre criar processo
+      const data = res.data;
+      setResultado(data);
+
+      // FASE 2: Verificar se processo foi criado
+      if (data.processo_criado_id) {
+        setPipelineStep("creating");
+        await new Promise((r) => setTimeout(r, 600));
+
+        // FASE 3: Redirecionar para análise profunda
+        setPipelineStep("redirecting");
+        await new Promise((r) => setTimeout(r, 500));
+
+        router.push(`/processos/${data.processo_criado_id}`);
+      } else {
+        // Processo não foi criado (dados insuficientes) — mostrar resultados
+        setPipelineStep("idle");
+      }
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : "Erro ao processar documento.";
+      setError(msg);
+      setPipelineStep("idle");
+    }
+  };
+
+  // ── Análise Rápida (sem criar processo) ──
+  const handleAnaliseRapida = async () => {
+    if (texto.trim().length < 20) {
+      setError("O texto deve ter pelo menos 20 caracteres.");
+      return;
+    }
+
+    setError(null);
+    setResultado(null);
+    setPipelineStep("analyzing");
+
+    try {
+      const res = await processText(texto, false);
       setResultado(res.data);
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : "Erro ao processar documento.";
       setError(msg);
     } finally {
-      setLoading(false);
+      setPipelineStep("idle");
     }
   };
 
@@ -145,25 +281,25 @@ export default function UploadPage() {
     }
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragActive(false);
+      const file = e.dataTransfer.files?.[0];
+      if (file) handleFile(file);
+    },
+    [handleFile]
+  );
 
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      handleFile(file);
-    }
-  }, [handleFile]);
-
-  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFile(file);
-    }
-    // Reset so same file can be re-selected
-    e.target.value = "";
-  }, [handleFile]);
+  const handleFileInput = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) handleFile(file);
+      e.target.value = "";
+    },
+    [handleFile]
+  );
 
   return (
     <div className="animate-fade-in space-y-8">
@@ -179,7 +315,7 @@ export default function UploadPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-        {/* Input Area */}
+        {/* ── LEFT: Input Area ── */}
         <div className="space-y-6">
           {/* Drag & Drop Zone */}
           <Card>
@@ -218,7 +354,9 @@ export default function UploadPage() {
                   <>
                     <File className="mb-2 h-8 w-8 text-emerald-400" />
                     <p className="text-sm text-emerald-400">{fileName}</p>
-                    <p className="text-xs text-slate-500">Clique para trocar o arquivo</p>
+                    <p className="text-xs text-slate-500">
+                      Clique para trocar o arquivo
+                    </p>
                   </>
                 ) : (
                   <>
@@ -240,57 +378,68 @@ export default function UploadPage() {
                 onChange={(e) => setTexto(e.target.value)}
                 placeholder="Cole aqui o texto completo do documento processual, sentença, petição ou depoimentos..."
                 className="h-64 w-full resize-none rounded-lg border border-slate-700 bg-slate-800/50 p-4 text-sm text-slate-200 placeholder-slate-600 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                disabled={isProcessing}
               />
               <div className="mt-2 text-right text-xs text-slate-600">
-                {texto.length} caracteres
+                {texto.length.toLocaleString()} caracteres
               </div>
             </CardContent>
           </Card>
 
-          {/* Options & Submit */}
+          {/* Action Buttons */}
           <Card>
             <CardContent>
-              <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-800 p-4 transition-colors hover:bg-slate-800/30">
-                <input
-                  type="checkbox"
-                  checked={criarProcesso}
-                  onChange={(e) => setCriarProcesso(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500"
-                />
-                <div>
-                  <p className="text-sm font-medium text-slate-200">
-                    Criar processo automaticamente
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Se os dados forem extraídos com sucesso, cadastra o processo
-                    no banco
-                  </p>
-                </div>
-              </label>
-
+              {/* Botão Principal: Análise Completa (Diana Tech) */}
               <button
-                onClick={handleAnalise}
-                disabled={loading || texto.trim().length < 20}
-                className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition-all hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={handleAnaliseCompleta}
+                disabled={isProcessing || texto.trim().length < 20}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/20 transition-all hover:from-blue-500 hover:to-indigo-500 hover:shadow-blue-500/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
               >
-                {loading ? (
+                {isProcessing ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Analisando com Gemini IA...
+                    Processando...
                   </>
                 ) : (
                   <>
-                    <Sparkles className="h-4 w-4" />
-                    Iniciar Análise Jurimétrica
+                    <Zap className="h-4 w-4" />
+                    Análise Completa + Criar Processo
+                    <ArrowRight className="h-4 w-4" />
                   </>
                 )}
+              </button>
+
+              <p className="mt-2 text-center text-[11px] text-slate-600">
+                Extrai dados, cria o processo no banco e redireciona para análise
+                profunda
+              </p>
+
+              {/* Divisor */}
+              <div className="my-4 flex items-center gap-3">
+                <div className="h-px flex-1 bg-slate-800" />
+                <span className="text-xs text-slate-600">ou</span>
+                <div className="h-px flex-1 bg-slate-800" />
+              </div>
+
+              {/* Botão Secundário: Análise Rápida (sem criar processo) */}
+              <button
+                onClick={handleAnaliseRapida}
+                disabled={isProcessing || texto.trim().length < 20}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-6 py-2.5 text-sm font-medium text-slate-300 transition-all hover:bg-slate-800 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Sparkles className="h-4 w-4" />
+                Análise Rápida (sem salvar)
               </button>
             </CardContent>
           </Card>
         </div>
 
-        {/* Results Area */}
+        {/* ── RIGHT: Results & Pipeline ── */}
         <div className="space-y-6">
+          {/* Pipeline Progress */}
+          {isProcessing && <PipelineProgress currentStep={pipelineStep} />}
+
+          {/* Error */}
           {error && (
             <Card className="border-red-500/20 bg-red-500/5">
               <CardContent>
@@ -307,7 +456,8 @@ export default function UploadPage() {
             </Card>
           )}
 
-          {resultado && (
+          {/* Resultado da análise */}
+          {resultado && pipelineStep === "idle" && (
             <>
               {/* Score Card */}
               <Card
@@ -358,6 +508,36 @@ export default function UploadPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* CTA: Ir para processo criado */}
+              {resultado.processo_criado_id && (
+                <Card className="border-blue-500/20 bg-blue-500/5">
+                  <CardContent>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-blue-300">
+                          Processo #{resultado.processo_criado_id} criado com
+                          sucesso!
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Clique para ver a análise profunda com IA
+                        </p>
+                      </div>
+                      <button
+                        onClick={() =>
+                          router.push(
+                            `/processos/${resultado.processo_criado_id}`
+                          )
+                        }
+                        className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-500"
+                      >
+                        Ver Processo
+                        <ArrowRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Supervisor Notes */}
               <Card>
@@ -428,15 +608,37 @@ export default function UploadPage() {
             </>
           )}
 
-          {!resultado && !error && (
+          {/* Empty State */}
+          {!resultado && !error && !isProcessing && (
             <Card>
               <CardContent>
                 <div className="py-16 text-center">
-                  <Sparkles className="mx-auto mb-4 h-12 w-12 text-slate-700" />
-                  <p className="text-sm text-slate-500">
-                    Cole um documento e clique em &quot;Iniciar Análise&quot; para
-                    ver os resultados da IA aqui.
+                  <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-blue-500/10 to-indigo-500/10 border border-blue-500/10">
+                    <Sparkles className="h-10 w-10 text-blue-500/40" />
+                  </div>
+                  <p className="text-sm font-medium text-slate-400">
+                    Cole um documento ou arraste um arquivo
                   </p>
+                  <p className="mt-2 text-xs text-slate-600">
+                    A IA vai extrair os dados, criar o processo e iniciar a
+                    análise jurimétrica automaticamente
+                  </p>
+                  <div className="mt-6 flex items-center justify-center gap-6 text-[11px] text-slate-600">
+                    <span className="flex items-center gap-1.5">
+                      <Search className="h-3.5 w-3.5 text-blue-400/50" />
+                      Extração
+                    </span>
+                    <span className="text-slate-800">→</span>
+                    <span className="flex items-center gap-1.5">
+                      <Brain className="h-3.5 w-3.5 text-indigo-400/50" />
+                      Análise
+                    </span>
+                    <span className="text-slate-800">→</span>
+                    <span className="flex items-center gap-1.5">
+                      <Zap className="h-3.5 w-3.5 text-amber-400/50" />
+                      Insights
+                    </span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
