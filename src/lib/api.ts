@@ -90,10 +90,10 @@ export const getProcesso = (id: number) =>
 export const calculatePricing = (data: PricingRequest) =>
   api.post<PricingResponse>("/api/v1/finance/calculate-pricing", data);
 
-export const processText = (texto: string, criar_processo = false) =>
+export const processText = (texto: string, salvar_processo = false) =>
   api.post<ProcessamentoResponse>("/api/v1/agents/process-text", {
     texto,
-    criar_processo,
+    salvar_processo,
   });
 
 export const getDepoimentos = (processoId: number) =>
