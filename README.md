@@ -1,36 +1,60 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🖥️ JudiTech Frontend
 
-## Getting Started
+Interface web da plataforma jurídica **JudiTech**, construída com **Next.js + TypeScript + Tailwind CSS**. Oferece dashboards, visualização de documentos e consumo de APIs jurídicas em uma experiência moderna e responsiva.
 
-First, run the development server:
+## ✨ Funcionalidades
+
+- 📊 Dashboards e gráficos interativos (Recharts).
+- 📄 Visualização de documentos PDF diretamente no navegador (pdf.js).
+- 🔗 Integração com a API backend via Axios.
+- 🗂️ Manipulação de arquivos compactados (JSZip).
+- 🎨 UI moderna e responsiva com Tailwind CSS e ícones Lucide.
+- 🐳 Pronto para deploy via Docker.
+
+## 🛠️ Tecnologias
+
+| Categoria | Tecnologias |
+|-----------|-------------|
+| Framework | Next.js, React |
+| Linguagem | TypeScript |
+| Estilização | Tailwind CSS |
+| Gráficos | Recharts |
+| Documentos | pdf.js (pdfjs-dist) |
+| HTTP | Axios |
+| Ícones | Lucide React |
+| Infra | Docker |
+
+## 🚀 Como executar
+
+Pré-requisitos: Node.js 18+ e npm.
 
 ```bash
+git clone https://github.com/phfdias88/juditech-frontend.git
+cd juditech-frontend
+
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Acesse `http://localhost:3000` no navegador.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Para gerar a build de produção:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+npm start
+```
 
-## Learn More
+### 🐳 Com Docker
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+docker-compose up --build
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 📌 Status
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Projeto em desenvolvimento — frontend da plataforma JudiTech.
 
-## Deploy on Vercel
+## 👤 Autor
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+**Paulo Henrique Ferreira Dias** — [LinkedIn](https://www.linkedin.com/in/phdias-ti)
